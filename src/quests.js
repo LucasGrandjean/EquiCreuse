@@ -11,6 +11,7 @@
      */
     EquiCreuse.prototype.updateQuestStatus = function (status) {
         this.questStatus = status;
+        console.log("[Creuse] New quest status found : " + status)
     };
 
     /**
