@@ -64,7 +64,7 @@
                             self.handleQuestChange(jsonResponse.data.quests);
                         }
 
-                        if (jsonResponse?.data?.character?.current_quest_stage) {
+                        if (jsonResponse?.data?.character?.current_quest_stage !== undefined) {
                             self.updateQuestStatus(jsonResponse.data.character.current_quest_stage);
                         }
 
