@@ -20,6 +20,7 @@
         questSenseBooster: 'sense-booster',
         trainSenseBooster: 'train-sense-booster',
         autoTrain: 'auto-train',
-        trainFocusOrder: 'train-focus-order'
+        trainFocusOrder: 'train-focus-order',
+        quest_status: 'quest-status'
     });
 })();

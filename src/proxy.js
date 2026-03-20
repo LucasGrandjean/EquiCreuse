@@ -64,6 +64,10 @@
                             self.handleQuestChange(jsonResponse.data.quests);
                         }
 
+                        if (Array.isArray(jsonResponse?.data?.quest?.status)) {
+                            self.updateQuestStatus(jsonResponse.data.quest.status);
+                        }
+
                         if (Array.isArray(jsonResponse?.data?.trainings)) {
                             self.handleTrainChange(jsonResponse.data.trainings);
                         }

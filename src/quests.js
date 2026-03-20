@@ -5,6 +5,14 @@
     const EquiCreuse = ns.classes.EquiCreuse;
     const {MISSION_FOCUS, QUEST_STAGES} = ns.constants;
 
+
+    /**
+     * Updates the current status of the quest
+     */
+    EquiCreuse.prototype.updateQuestStatus = function (status) {
+        this.questStatus = status;
+    };
+
     /**
      * Starts or stops mission automation.
      */
@@ -233,6 +241,11 @@
      */
     EquiCreuse.prototype.executeBestMission = function () {
         if (!this.isMissionRunning) {
+            return;
+        }
+
+        if (this.questStatus === 3) {
+            console.log('[Creuse] Quest already ongoing');
             return;
         }
 
