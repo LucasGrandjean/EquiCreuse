@@ -64,8 +64,8 @@
                             self.handleQuestChange(jsonResponse.data.quests);
                         }
 
-                        if (Array.isArray(jsonResponse?.data?.quest?.status)) {
-                            self.updateQuestStatus(jsonResponse.data.quest.status);
+                        if (Array.isArray(jsonResponse?.data?.character?.current_quest_stage)) {
+                            self.updateQuestStatus(jsonResponse.data.character.current_quest_stage);
                         }
 
                         if (Array.isArray(jsonResponse?.data?.trainings)) {

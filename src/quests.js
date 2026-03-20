@@ -244,7 +244,7 @@
             return;
         }
 
-        if (this.questStatus === 2) {
+        if (this.questStatus !== 0) {
             console.log('[Creuse] Quest already ongoing');
             return;
         }
