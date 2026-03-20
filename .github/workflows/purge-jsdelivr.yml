@@ -1,0 +1,15 @@
+﻿name: Purge jsDelivr cache
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Purge jsDelivr
+        run: |
+          curl -X GET "https://purge.jsdelivr.net/gh/LucasGrandjean/EquiCreuse@dev/src/"
