@@ -65,6 +65,7 @@
                         }
 
                         if (Array.isArray(jsonResponse?.data?.character?.current_quest_stage)) {
+                            console.log("Found current quest stage");
                             self.updateQuestStatus(jsonResponse.data.character.current_quest_stage);
                         }
 
