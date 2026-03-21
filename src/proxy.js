@@ -49,7 +49,7 @@
                         }
 
                         if (jsonResponse) {
-                            console.groupCollapsed('XHRE Response:', xhr._url);
+                            console.groupCollapsed('XHR Response:', xhr._url);
                             console.log('Method:', xhr._method);
                             console.log('URL:', xhr._url);
                             console.log('Response:', jsonResponse);
@@ -63,10 +63,12 @@
                         if (Array.isArray(jsonResponse?.data?.quests)) {
                             self.handleQuestChange(jsonResponse.data.quests);
                         }
-
-                        if (jsonResponse?.data?.character?.current_quest_stage !== undefined) {
-                            console.log('[Creuse] calling updateQuestStatus with', jsonResponse?.data?.character?.current_quest_stage);
-                            self.updateQuestStatus(jsonResponse?.data?.character?.current_quest_stage);
+                        /**
+                         * 3 : NO QUEST ONGOING / 4 : ONGOING
+                         */
+                        if (jsonResponse?.data?.quest?.status !== undefined) {
+                            console.log('[Creuse] calling updateQuestStatus with', jsonResponse?.data?.quest?.status);
+                            self.updateQuestStatus(jsonResponse?.data?.quest?.status);
                         }
 
                         if (Array.isArray(jsonResponse?.data?.trainings)) {
