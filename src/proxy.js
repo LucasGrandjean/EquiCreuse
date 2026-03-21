@@ -64,15 +64,9 @@
                             self.handleQuestChange(jsonResponse.data.quests);
                         }
 
-                        const stage = jsonResponse?.data?.character?.current_quest_stage;
-
-                        console.log('[Creuse] stage seen in proxy =', stage);
-                        console.log('[Creuse] self =', self);
-                        console.log('[Creuse] typeof self.updateQuestStatus =', typeof self?.updateQuestStatus);
-
-                        if (stage !== undefined) {
-                            console.log('[Creuse] calling updateQuestStatus with', stage);
-                            self.updateQuestStatus(stage);
+                        if (jsonResponse?.data?.character?.current_quest_stage !== undefined) {
+                            console.log('[Creuse] calling updateQuestStatus with', jsonResponse?.data?.character?.current_quest_stage);
+                            self.updateQuestStatus(jsonResponse?.data?.character?.current_quest_stage);
                         }
 
                         if (Array.isArray(jsonResponse?.data?.trainings)) {
