@@ -4,14 +4,19 @@
     const ns = window.EquiCreuseNS;
     const EquiCreuse = ns.classes.EquiCreuse;
     const {MISSION_FOCUS, QUEST_STAGES} = ns.constants;
-
-
+    
     /**
      * Updates the current status of the quest
      */
     EquiCreuse.prototype.updateQuestStatus = function (status) {
         this.questStatus = status;
         console.log("[Creuse] New quest status found : " + status);
+    };
+    /**
+     * Updates the current timer of the quest
+     */
+    EquiCreuse.prototype.updateQuestCompleteTimer = function (time) {
+        this.questCompleteTimer = time;
     };
 
     /**
@@ -53,7 +58,7 @@
                     return;
                 }
 
-                if (!document.Creuse?.quest_complete._btnClose) {
+                if (!document.Creuse?.quest_complete?._btnClose) {
                     console.log('No Close Button');
                     return;
                 }
@@ -76,6 +81,7 @@
             this.stopMissionExecution();
             return;
         }
+
 
         setTimeout(() => {
             if (!this.isMissionRunning) {
@@ -245,7 +251,7 @@
             return;
         }
 
-        if (this.questStatus !== 3) {
+        if (this.questStatus !== 0) {
             console.log('[Creuse] Quest already ongoing');
             return;
         }
@@ -265,22 +271,22 @@
 
         try {
             document.Creuse.stage.setStage(bestQuest.stage);
-            console.log('Switched stage');
+            console.log('[Creuse] Switched stage to', bestQuest.stage);
         } catch (e) {
             console.error('[Creuse] Failed to switch to quest stage', bestQuest.stage, e);
             this.stopMissionExecution();
             return;
         }
 
-        setTimeout(() => {
+        const waitForQuestButtons = (attempt = 0) => {
             if (!this.isMissionRunning) {
                 return;
             }
 
             const questButtons = [
-                document.Creuse.quest._btnQuest1,
-                document.Creuse.quest._btnQuest2,
-                document.Creuse.quest._btnQuest3
+                document.Creuse?.quest?._btnQuest1,
+                document.Creuse?.quest?._btnQuest2,
+                document.Creuse?.quest?._btnQuest3
             ].filter(Boolean);
 
             const targetButton = questButtons.find((button) => {
@@ -291,7 +297,62 @@
                 }
             });
 
-            if (!targetButton) {
+            if (targetButton) {
+                console.log('[Creuse] Found target quest button', bestQuest.id);
+
+                try {
+                    document.Creuse.quest.clickQuest(targetButton);
+                } catch (e) {
+                    console.error('[Creuse] Failed to open selected quest', e);
+                    this.stopMissionExecution();
+                    return;
+                }
+
+                if (!this.autoStartQuest) {
+                    if (!this.autoNextQuest) {
+                        this.stopMissionExecution();
+                    }
+                    return;
+                }
+
+                const waitForQuestDialog = (dialogAttempt = 0) => {
+                    if (!this.isMissionRunning) {
+                        return;
+                    }
+
+                    const questDialog = document.Creuse?.dialog_quest;
+
+                    if (questDialog && typeof questDialog.onClickStartQuest === 'function') {
+                        try {
+                            console.log('[Creuse] Starting selected quest');
+                            questDialog.onClickStartQuest();
+                        } catch (e) {
+                            console.error('[Creuse] Failed to auto-start quest', e);
+                            this.stopMissionExecution();
+                            return;
+                        }
+
+                        if (!this.autoNextQuest) {
+                            this.stopMissionExecution();
+                        }
+
+                        return;
+                    }
+
+                    if (dialogAttempt >= 20) {
+                        console.error('[Creuse] Quest dialog did not appear in time');
+                        this.stopMissionExecution();
+                        return;
+                    }
+
+                    setTimeout(() => waitForQuestDialog(dialogAttempt + 1), 200);
+                };
+
+                waitForQuestDialog();
+                return;
+            }
+
+            if (attempt >= 20) {
                 console.error('[Creuse] Failed to find quest button for selected quest', {
                     bestQuest,
                     availableQuestIds: questButtons.map((button) => {
@@ -306,33 +367,9 @@
                 return;
             }
 
-            try {
-                document.Creuse.quest.clickQuest(targetButton);
-            } catch (e) {
-                console.error('[Creuse] Failed to open selected quest', e);
-                this.stopMissionExecution();
-                return;
-            }
+            setTimeout(() => waitForQuestButtons(attempt + 1), 200);
+        };
 
-            setTimeout(() => {
-                if (!this.isMissionRunning) {
-                    return;
-                }
-
-                if (this.autoStartQuest && document.Creuse?.dialog_quest) {
-                    try {
-                        document.Creuse.dialog_quest.onClickStartQuest();
-                    } catch (e) {
-                        console.error('[Creuse] Failed to auto-start quest', e);
-                        this.stopMissionExecution();
-                        return;
-                    }
-                }
-
-                if (!this.autoNextQuest) {
-                    this.stopMissionExecution();
-                }
-            }, 300);
-        }, 400);
+        waitForQuestButtons();
     };
 })();

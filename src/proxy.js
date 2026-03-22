@@ -63,12 +63,30 @@
                         if (Array.isArray(jsonResponse?.data?.quests)) {
                             self.handleQuestChange(jsonResponse.data.quests);
                         }
-                        /**
-                         * 3 : NO QUEST ONGOING / 4 : ONGOING
-                         */
-                        if (jsonResponse?.data?.quest?.status !== undefined) {
-                            console.log('[Creuse] calling updateQuestStatus with', jsonResponse?.data?.quest?.status);
-                            self.updateQuestStatus(jsonResponse?.data?.quest?.status);
+
+                        if (jsonResponse?.data?.character?.active_quest_id !== undefined) {
+                            console.log('[Creuse] calling updateQuestStatus with', jsonResponse?.data?.character?.active_quest_id);
+                            self.updateQuestStatus(jsonResponse?.data?.character?.active_quest_id);
+                        }
+
+                        if (jsonResponse?.data?.character?.ts_last_training_finished !== undefined) {
+                            self.updateTrainingEndedTimer(jsonResponse?.data?.character?.ts_last_training_finished);
+                        }
+
+                        if (jsonResponse?.data?.quest?.ts_complete !== undefined) {
+                            self.updateQuestCompleteTimer(jsonResponse?.data?.quest?.ts_complete);
+                        }
+                        if (jsonResponse?.data?.character?.training_count !== undefined) {
+                            self.updateTrainingCount(jsonResponse?.data?.character?.training_count);
+                        }
+
+                        if (jsonResponse?.data?.server_time !== undefined) {
+                            self.updateServerTime(jsonResponse?.data?.server_time);
+                        }
+
+                        if (jsonResponse?.data?.character?.active_training_id !== undefined) {
+                            console.log('[Creuse] calling updateTrainingStatus with', jsonResponse?.data?.character?.active_training_id);
+                            self.updateTrainingStatus(jsonResponse?.data?.character?.active_training_id);
                         }
 
                         if (Array.isArray(jsonResponse?.data?.trainings)) {

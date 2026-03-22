@@ -6,6 +6,142 @@
     const keys = ns.keys;
 
     /**
+     * Normalizes a unix timestamp to seconds.
+     * Accepts strings, numbers, and millisecond timestamps.
+     */
+    EquiCreuse.prototype.normalizeUnixTime = function (value) {
+        const parsed = Number(value);
+
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return 0;
+        }
+
+        // If value looks like milliseconds, convert to seconds
+        return parsed > 9999999999 ? Math.floor(parsed / 1000) : Math.floor(parsed);
+    };
+
+    /**
+     * Returns the current effective server time in seconds.
+     * Based on the last known server time plus real elapsed local time.
+     */
+    EquiCreuse.prototype.getCurrentServerTime = function () {
+        const baseServerTime = this.normalizeUnixTime(this.serverTime);
+
+        if (!baseServerTime) {
+            return 0;
+        }
+
+        const syncedAt = Number(this.serverTimeSyncedAt || 0);
+
+        if (!syncedAt) {
+            return baseServerTime;
+        }
+
+        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - syncedAt) / 1000));
+
+        return baseServerTime + elapsedSeconds;
+    };
+
+    /**
+     * Updates the current server time reference.
+     */
+    EquiCreuse.prototype.updateServerTime = function (time) {
+        const normalized = this.normalizeUnixTime(time);
+
+        if (!normalized) {
+            return;
+        }
+
+        this.serverTime = normalized;
+        this.serverTimeSyncedAt = Date.now();
+    };
+
+    /**
+     * Returns the remaining quest timer in seconds.
+     * The timer ends at questCompleteTimer.
+     */
+    EquiCreuse.prototype.getQuestTimerRemaining = function () {
+        const questCompleteTimer = this.normalizeUnixTime(this.questCompleteTimer);
+        const now = this.getCurrentServerTime();
+
+        if (!questCompleteTimer || !now) {
+            return 0;
+        }
+
+        return Math.max(0, questCompleteTimer - now);
+    };
+
+    /**
+     * Formats a number of seconds as XmYs or Xs.
+     */
+    EquiCreuse.prototype.formatCooldownSeconds = function (seconds) {
+        const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+
+        const minutes = Math.floor(safeSeconds / 60);
+        const remainingSeconds = safeSeconds % 60;
+
+        if (minutes <= 0) {
+            return `${remainingSeconds}s`;
+        }
+
+        return `${minutes}m${remainingSeconds}s`;
+    };
+
+    /**
+     * Returns the remaining training cooldown in seconds.
+     * - Normal case: cooldown ends 10 minutes after lastTrainingFinished.
+     * - If motivationCount is 0: cooldown ends at next midnight.
+     */
+    EquiCreuse.prototype.getTrainingCooldownRemaining = function () {
+        const now = this.getCurrentServerTime();
+
+        if (!now) {
+            return 0;
+        }
+
+        if (Number(this.motivationCount ?? 0) === 0) {
+            const nowDate = new Date(now * 1000);
+            const nextMidnight = new Date(nowDate);
+            nextMidnight.setHours(24, 0, 0, 0);
+
+            return Math.max(0, Math.floor(nextMidnight.getTime() / 1000) - now);
+        }
+
+        const lastTrainingFinished = this.normalizeUnixTime(this.lastTrainingFinished);
+
+        if (!lastTrainingFinished) {
+            return 0;
+        }
+
+        const cooldownEnd = lastTrainingFinished + 600;
+
+        return Math.max(0, cooldownEnd - now);
+    };
+
+    /**
+     * Starts the HUD timer refresh for the buttons.
+     */
+    EquiCreuse.prototype.startTrainingButtonTimer = function () {
+        if (this._trainingButtonTimerInterval) {
+            clearInterval(this._trainingButtonTimerInterval);
+        }
+
+        this._trainingButtonTimerInterval = setInterval(() => {
+            this.refreshActionButtons();
+        }, 1000);
+    };
+
+    /**
+     * Stops the HUD timer refresh for the training button.
+     */
+    EquiCreuse.prototype.stopTrainingButtonTimer = function () {
+        if (this._trainingButtonTimerInterval) {
+            clearInterval(this._trainingButtonTimerInterval);
+            this._trainingButtonTimerInterval = null;
+        }
+    };
+
+    /**
      * Creates and inserts the custom UI into the page.
      */
     EquiCreuse.prototype.createUI = function () {
@@ -263,6 +399,7 @@
         document.body.appendChild(spDi);
         this.initializeSortableTrainingFocus();
         this.initializeUIElements();
+        this.startTrainingButtonTimer();
     };
 
     /**
@@ -433,13 +570,28 @@
         const trainingButton = document.getElementById('creuse-train');
 
         if (missionButton) {
-            missionButton.textContent = this.isMissionRunning ? 'Stop' : 'Go';
+            const questRemaining = this.getQuestTimerRemaining();
+            const missionBaseLabel = this.isMissionRunning ? 'Stop' : 'Go';
+
+            missionButton.textContent =
+                questRemaining > 0
+                    ? `${missionBaseLabel} (${this.formatCooldownSeconds(questRemaining)})`
+                    : missionBaseLabel;
+
             missionButton.classList.toggle('btn-success', !this.isMissionRunning);
             missionButton.classList.toggle('btn-danger', this.isMissionRunning);
+
         }
 
         if (trainingButton) {
-            trainingButton.textContent = this.isTrainingRunning ? 'Stop' : 'Go';
+            const cooldownRemaining = this.getTrainingCooldownRemaining();
+            const trainingBaseLabel = this.isTrainingRunning ? 'Stop' : 'Go';
+
+            trainingButton.textContent =
+                cooldownRemaining > 0
+                    ? `${trainingBaseLabel} (${this.formatCooldownSeconds(cooldownRemaining)})`
+                    : trainingBaseLabel;
+
             trainingButton.classList.toggle('btn-success', !this.isTrainingRunning);
             trainingButton.classList.toggle('btn-danger', this.isTrainingRunning);
         }

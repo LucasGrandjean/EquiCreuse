@@ -6,17 +6,109 @@
     const keys = ns.keys;
 
     /**
+     * Updates the current motivation amount.
+     */
+    EquiCreuse.prototype.updateTrainingCount = function (amount) {
+        this.motivationCount = Number(amount || 0);
+    };
+
+    /**
+     * Updates the current training status.
+     */
+    EquiCreuse.prototype.updateTrainingStatus = function (status) {
+        this.trainStatus = Number(status || 0);
+    };
+
+    /**
+     * Updates the training cooldown anchor.
+     */
+    EquiCreuse.prototype.updateTrainingEndedTimer = function (time) {
+        this.lastTrainingFinished =
+            typeof this.normalizeUnixTime === 'function'
+                ? this.normalizeUnixTime(time)
+                : Number(time || 0);
+    };
+
+    /**
      * Updates stored training energy from intercepted game data.
      */
     EquiCreuse.prototype.handleTrainEnergyChange = function (trainEnergy) {
-        this.trainingEnergy = trainEnergy;
+        this.trainingEnergy = Number(trainEnergy || 0);
     };
 
     /**
      * Updates the cached list of training offers.
      */
     EquiCreuse.prototype.handleTrainChange = function (trains) {
-        this.currentTrains = trains;
+        this.currentTrains = Array.isArray(trains) ? trains : [];
+    };
+
+    /**
+     * Returns the total energy that can still be spent before training ends.
+     * One energy regenerates every 60 seconds.
+     */
+    EquiCreuse.prototype.getProjectedTrainingEnergy = function (currentEnergy, remainingSeconds) {
+        const regen = Math.max(0, Math.floor(Number(remainingSeconds || 0) / 60));
+        return Math.max(0, Number(currentEnergy || 0)) + regen;
+    };
+
+    /**
+     * Returns the remaining seconds for the current training session.
+     * Multiple field names are checked because the game internals may vary.
+     */
+    EquiCreuse.prototype.getRemainingTrainingSeconds = function () {
+        const progress = document.Creuse?.train?._trainingProgress;
+        const direct = Number(
+            progress?._remainingSeconds ??
+            progress?._remaining_time ??
+            progress?._secondsLeft ??
+            progress?._timeLeft ??
+            progress?.remaining_seconds ??
+            0
+        );
+
+        return Number.isFinite(direct) && direct > 0 ? direct : 0;
+    };
+
+    /**
+     * Chooses the best visible training candidate according to the real objective:
+     * maximize total points by the end of training.
+     *
+     * Rules:
+     * 1. Highest ratio always wins first.
+     * 2. If ratios are equal, prefer the quest that wastes less projected total usable energy.
+     * 3. If still tied, prefer lower cost.
+     * 4. If still tied, prefer higher raw reward.
+     */
+    EquiCreuse.prototype.selectBestTrainingCandidate = function (
+        candidates,
+        trainingEnergyLeft,
+        remainingSeconds
+    ) {
+        if (!candidates.length) {
+            return null;
+        }
+
+        const projectedEnergy = this.getProjectedTrainingEnergy(trainingEnergyLeft, remainingSeconds);
+
+        return [...candidates].sort((a, b) => {
+            if (b.ratio !== a.ratio) {
+                return b.ratio - a.ratio;
+            }
+
+            const wasteA = Math.max(0, projectedEnergy - a.energyCost);
+            const wasteB = Math.max(0, projectedEnergy - b.energyCost);
+
+            if (wasteA !== wasteB) {
+                return wasteA - wasteB;
+            }
+
+            if (a.energyCost !== b.energyCost) {
+                return a.energyCost - b.energyCost;
+            }
+
+            return b.trainingProgress - a.trainingProgress;
+        })[0];
     };
 
     /**
@@ -166,9 +258,7 @@
             return;
         }
 
-        const trainingNeededValue = trainPanel?._trainingProgress?._neededValue;
-
-        if (trainingNeededValue === -1) {
+        if (this.trainStatus === 0) {
             try {
                 viewManager.showPanel('training_offers');
             } catch (e) {
@@ -232,8 +322,32 @@
                         return;
                     }
 
-                    console.log('[Creuse] Found a training, starting automation');
-                    this.executeAutoTraining();
+                    console.log('[Creuse] Found a training, waiting for session to initialize');
+
+                    const waitForTrainingSession = (attempt = 0) => {
+                        if (!this.isTrainingRunning) {
+                            return;
+                        }
+
+                        const currentTrainPanel = document.Creuse?.train;
+                        const neededValue = currentTrainPanel?._trainingProgress?._neededValue;
+
+                        if (neededValue !== undefined && neededValue !== null && neededValue !== -1) {
+                            console.log('[Creuse] Training session initialized, continuing automation');
+                            this.executeAutoTraining();
+                            return;
+                        }
+
+                        if (attempt >= 20) {
+                            console.error('[Creuse] Training session did not initialize in time');
+                            this.scheduleAutoTrainingRetry();
+                            return;
+                        }
+
+                        setTimeout(() => waitForTrainingSession(attempt + 1), 250);
+                    };
+
+                    waitForTrainingSession();
                     return;
                 }
 
@@ -256,8 +370,6 @@
         }
 
         const trainPanel = document.Creuse?.train;
-        const trainingCompleteDialog = document.Creuse?.training_complete;
-        const trainingDoneDialog = document.Creuse?.training_done_dialog;
 
         if (!trainPanel?._trainingProgress) {
             console.warn('[Creuse] Training progress is unavailable');
@@ -268,15 +380,21 @@
         if (trainPanel._trainingProgress._neededValue !== -1) {
             this.clearAutoTrainingRetry();
 
+            const trainingCompleteDialog = document.Creuse?.training_complete;
             if (trainingCompleteDialog?._btnClose) {
                 setTimeout(() => {
                     if (!this.isTrainingRunning) {
                         return;
                     }
 
+                    const currentDialog = document.Creuse?.training_complete;
+                    if (!currentDialog || typeof currentDialog.handleClickClose !== 'function') {
+                        return;
+                    }
+
                     try {
                         console.log('[Creuse] Training ended, closing the dialog.');
-                        trainingCompleteDialog.handleClickClose();
+                        currentDialog.handleClickClose();
                     } catch (e) {
                         console.error('[Creuse] Error while closing training complete dialog', e);
                     }
@@ -284,6 +402,9 @@
             }
 
             const trainingEnergyLeft = Number(this.trainingEnergy ?? 0);
+            const remainingSeconds = this.getRemainingTrainingSeconds();
+            const projectedEnergy = this.getProjectedTrainingEnergy(trainingEnergyLeft, remainingSeconds);
+
             const trainButtons = [
                 trainPanel._btnQuest1,
                 trainPanel._btnQuest2,
@@ -296,7 +417,7 @@
                 return;
             }
 
-            const trainCandidates = trainButtons
+            const visibleTrainCandidates = trainButtons
                 .map((btn, index) => {
                     const tag = typeof btn?.get_tag === 'function' ? btn.get_tag() : btn?._tag;
                     const data = tag?._data ?? null;
@@ -324,6 +445,7 @@
                     const energyCost = Number(data.energy_cost ?? 999999);
                     const fightDifficulty = Number(data.fight_difficulty ?? 999999);
                     const trainingProgress = Number(rewards?.training_progress ?? 0);
+                    const type = Number(data.type ?? 999999);
 
                     return {
                         index,
@@ -333,36 +455,56 @@
                         rewards,
                         energyCost,
                         fightDifficulty,
+                        type,
                         trainingProgress,
                         ratio: energyCost > 0 ? trainingProgress / energyCost : 0
                     };
                 })
                 .filter(Boolean)
-                .filter((q) => q.fightDifficulty < 3)
+                .filter((q) => (q.type === 3 ? q.fightDifficulty < 3 : true))
                 .filter((q) => q.trainingProgress > 0)
-                .filter((q) => q.energyCost <= trainingEnergyLeft);
+                .filter((q) => q.energyCost <= projectedEnergy);
 
-            if (!trainCandidates.length) {
-                console.error('[Creuse] No valid training quests found', {
-                    trainingEnergyLeft
+            if (!visibleTrainCandidates.length) {
+                console.error('[Creuse] No valid reachable training quests found', {
+                    trainingEnergyLeft,
+                    projectedEnergy,
+                    remainingSeconds
                 });
                 this.scheduleAutoTrainingRetry();
                 return;
             }
 
-            trainCandidates.sort((a, b) => {
-                if (b.ratio !== a.ratio) {
-                    return b.ratio - a.ratio;
-                }
+            const bestQuest = this.selectBestTrainingCandidate(
+                visibleTrainCandidates,
+                trainingEnergyLeft,
+                remainingSeconds
+            );
 
-                if (a.energyCost !== b.energyCost) {
-                    return a.energyCost - b.energyCost;
-                }
+            if (!bestQuest) {
+                console.log('[Creuse] No visible training quest selected, waiting', {
+                    trainingEnergyLeft,
+                    projectedEnergy,
+                    remainingSeconds
+                });
+                this.scheduleAutoTrainingRetry();
+                return;
+            }
 
-                return b.trainingProgress - a.trainingProgress;
-            });
-
-            const bestQuest = trainCandidates[0];
+            if (bestQuest.energyCost > trainingEnergyLeft) {
+                console.log('[Creuse] Best training quest selected but not affordable yet, waiting', {
+                    trainingEnergyLeft,
+                    projectedEnergy,
+                    remainingSeconds,
+                    bestQuest: {
+                        energyCost: bestQuest.energyCost,
+                        trainingProgress: bestQuest.trainingProgress,
+                        ratio: bestQuest.ratio
+                    }
+                });
+                this.scheduleAutoTrainingRetry(bestQuest.energyCost);
+                return;
+            }
 
             try {
                 trainPanel.openTrainingQuest(bestQuest.tag);
@@ -400,10 +542,11 @@
                             return;
                         }
 
-                        if (document.Creuse?.training_done_dialog) {
+                        const doneDialog = document.Creuse?.training_done_dialog;
+                        if (doneDialog && typeof doneDialog.handleClickClose === 'function') {
                             try {
                                 console.log('[Creuse] Closing end dialog of training quest.');
-                                document.Creuse.training_done_dialog.handleClickClose();
+                                doneDialog.handleClickClose();
                             } catch (e) {
                                 console.error('[Creuse] Error while closing training done dialog', e);
                             }
@@ -417,15 +560,21 @@
             return;
         }
 
+        const trainingDoneDialog = document.Creuse?.training_done_dialog;
         if (trainingDoneDialog) {
             setTimeout(() => {
                 if (!this.isTrainingRunning) {
                     return;
                 }
 
+                const currentDialog = document.Creuse?.training_done_dialog;
+                if (!currentDialog || typeof currentDialog.handleClickClose !== 'function') {
+                    return;
+                }
+
                 try {
                     console.log('[Creuse] Closing lingering end dialog of training quest.');
-                    trainingDoneDialog.handleClickClose();
+                    currentDialog.handleClickClose();
                 } catch (e) {
                     console.error('[Creuse] Error while closing lingering training dialog', e);
                 }
@@ -437,14 +586,37 @@
 
     /**
      * Schedules a delayed retry for training automation.
+     * If a target energy cost is provided, the retry is aligned with expected regeneration.
      */
-    EquiCreuse.prototype.scheduleAutoTrainingRetry = function () {
+    EquiCreuse.prototype.scheduleAutoTrainingRetry = function (targetEnergyCost = null) {
         if (!this.isTrainingRunning) {
             return;
         }
 
         if (this.autoTrainingRetryTimeout) {
             return;
+        }
+
+        const remainingSeconds =
+            typeof this.getRemainingTrainingSeconds === 'function'
+                ? this.getRemainingTrainingSeconds()
+                : 0;
+
+        const currentEnergy = Number(this.trainingEnergy ?? 0);
+
+        let retryDelay = 5000;
+
+        if (targetEnergyCost !== null && targetEnergyCost > currentEnergy) {
+            const missingEnergy = targetEnergyCost - currentEnergy;
+            retryDelay = Math.max(1000, (missingEnergy * 60 * 1000) - 500);
+
+            if (remainingSeconds > 0) {
+                retryDelay = Math.min(retryDelay, Math.max(1000, remainingSeconds * 1000));
+            }
+        } else if (remainingSeconds > 0 && remainingSeconds <= 300) {
+            retryDelay = 1000;
+        } else if (currentEnergy < 5) {
+            retryDelay = 1000;
         }
 
         this.autoTrainingRetryTimeout = setTimeout(() => {
@@ -456,7 +628,7 @@
 
             console.log('[Creuse] Retrying executeBestTrain...');
             this.executeBestTrain();
-        }, 5000);
+        }, retryDelay);
     };
 
     /**

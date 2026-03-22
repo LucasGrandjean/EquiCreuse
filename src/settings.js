@@ -5,6 +5,7 @@
     const EquiCreuse = ns.classes.EquiCreuse;
     const keys = ns.keys;
 
+
     /**
      * Updates the selected mission focus.
      */
@@ -127,8 +128,8 @@
      * Opens the in-game dialog to buy more energy.
      */
     EquiCreuse.prototype.buyMoreEnergy = function () {
-        if (document?.Creuse?.quest) {
-            document.Creuse.quest.onClickBuyEnergy();
+        if (document?.Creuse?.quest?._energypanel) {
+            document.Creuse.quest._energypanel.onClickBuyEnergy();
         }
     };
 })();

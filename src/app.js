@@ -11,6 +11,11 @@
             this.currentTrains = [];
             this.trainingEnergy = 0;
             this.questStatus = 0;
+            this.trainStatus = 0;
+            this.lastTrainingFinished = 0;
+            this.questCompleteTimer = 0;
+            this.serverTime = 0;
+            this.motivationCount = 0;
 
             this.currentMissionFocus = GM_getValue(keys.missionFocus, MISSION_FOCUS.XP);
             this.currentFPS = GM_getValue(keys.fps, 30);
