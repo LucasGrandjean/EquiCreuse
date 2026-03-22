@@ -73,6 +73,10 @@
                             self.updateTrainingEndedTimer(jsonResponse?.data?.character?.ts_last_training_finished);
                         }
 
+                        if (jsonResponse?.data?.training?.ts_end !== undefined) {
+                            self.updateCurrentTrainingTimer(jsonResponse?.data?.training?.ts_end);
+                        }
+
                         if (jsonResponse?.data?.quest?.ts_complete !== undefined) {
                             self.updateQuestCompleteTimer(jsonResponse?.data?.quest?.ts_complete);
                         }

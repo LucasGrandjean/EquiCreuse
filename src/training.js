@@ -6,6 +6,66 @@
     const keys = ns.keys;
 
     /**
+     * Base UI delay settings.
+     * Increase slightly if the HUD still feels too fast.
+     */
+    EquiCreuse.prototype.uiDelayBase = 180;
+    EquiCreuse.prototype.uiDelaySpread = 120;
+
+    /**
+     * Returns a small UI-friendly randomized delay.
+     */
+    EquiCreuse.prototype.getUiActionDelay = function (base = null, spread = null) {
+        const finalBase = Number(base ?? this.uiDelayBase ?? 180);
+        const finalSpread = Number(spread ?? this.uiDelaySpread ?? 120);
+
+        return Math.max(0, finalBase + Math.floor(Math.random() * finalSpread));
+    };
+
+    /**
+     * Executes a function after a small UI-friendly delay.
+     */
+    EquiCreuse.prototype.runWithUiDelay = function (fn, base = null, spread = null) {
+        setTimeout(() => {
+            try {
+                fn();
+            } catch (e) {
+                console.error('[Creuse] Delayed UI action failed', e);
+            }
+        }, this.getUiActionDelay(base, spread));
+    };
+
+    /**
+     * Automatically starts the next training when the cooldown ends,
+     * if automation is enabled and auto-next is active.
+     */
+    EquiCreuse.prototype.handleTrainingCooldownFinished = function () {
+        if (!this.isTrainingRunning || !this.autoNextTrain) {
+            this.autoNextTrainCooldownTriggered = false;
+            return;
+        }
+
+        const cooldownRemaining =
+            typeof this.getTrainingCooldownRemaining === 'function'
+                ? this.getTrainingCooldownRemaining()
+                : 0;
+
+        if (cooldownRemaining > 0) {
+            this.autoNextTrainCooldownTriggered = false;
+            return;
+        }
+
+        if (this.autoNextTrainCooldownTriggered) {
+            return;
+        }
+
+        this.autoNextTrainCooldownTriggered = true;
+
+        console.log('[Creuse] Training cooldown finished, starting next training');
+        this.executeBestTrain();
+    };
+
+    /**
      * Updates the current motivation amount.
      */
     EquiCreuse.prototype.updateTrainingCount = function (amount) {
@@ -24,6 +84,18 @@
      */
     EquiCreuse.prototype.updateTrainingEndedTimer = function (time) {
         this.lastTrainingFinished =
+            typeof this.normalizeUnixTime === 'function'
+                ? this.normalizeUnixTime(time)
+                : Number(time || 0);
+
+        this.autoNextTrainCooldownTriggered = false;
+    };
+
+    /**
+     * Updates the absolute end timestamp of the current training session.
+     */
+    EquiCreuse.prototype.updateCurrentTrainingTimer = function (time) {
+        this.currentTrainingTimer =
             typeof this.normalizeUnixTime === 'function'
                 ? this.normalizeUnixTime(time)
                 : Number(time || 0);
@@ -53,21 +125,29 @@
     };
 
     /**
-     * Returns the remaining seconds for the current training session.
-     * Multiple field names are checked because the game internals may vary.
+     * Returns the remaining seconds for the current training session,
+     * based on the absolute training end timestamp.
      */
     EquiCreuse.prototype.getRemainingTrainingSeconds = function () {
-        const progress = document.Creuse?.train?._trainingProgress;
-        const direct = Number(
-            progress?._remainingSeconds ??
-            progress?._remaining_time ??
-            progress?._secondsLeft ??
-            progress?._timeLeft ??
-            progress?.remaining_seconds ??
-            0
-        );
+        const endTime =
+            typeof this.normalizeUnixTime === 'function'
+                ? this.normalizeUnixTime(this.currentTrainingTimer)
+                : Number(this.currentTrainingTimer || 0);
 
-        return Number.isFinite(direct) && direct > 0 ? direct : 0;
+        const now =
+            typeof this.getCurrentServerTime === 'function'
+                ? this.getCurrentServerTime()
+                : (
+                    typeof this.normalizeUnixTime === 'function'
+                        ? this.normalizeUnixTime(this.serverTime)
+                        : Number(this.serverTime || 0)
+                );
+
+        if (!endTime || !now) {
+            return 0;
+        }
+
+        return Math.max(0, endTime - now);
     };
 
     /**
@@ -94,6 +174,14 @@
         return [...candidates].sort((a, b) => {
             if (b.ratio !== a.ratio) {
                 return b.ratio - a.ratio;
+            }
+
+            if (remainingSeconds <= 0 || remainingSeconds > 40) {
+                if (a.energyCost !== b.energyCost) {
+                    return a.energyCost - b.energyCost;
+                }
+
+                return b.trainingProgress - a.trainingProgress;
             }
 
             const wasteA = Math.max(0, projectedEnergy - a.energyCost);
@@ -259,27 +347,32 @@
         }
 
         if (this.trainStatus === 0) {
-            try {
-                viewManager.showPanel('training_offers');
-            } catch (e) {
-                console.error('[Creuse] Failed to open training offers panel', e);
-                this.scheduleAutoTrainingRetry();
-                return;
-            }
+            this.runWithUiDelay(() => {
+                if (!this.isTrainingRunning) {
+                    return;
+                }
 
-            const bestTrain = this.getBestTrain();
-            if (!bestTrain) {
-                console.log('[Creuse] No best train');
-                this.stopTrainingExecution();
-                return;
-            }
-
-            this.clearAutoTrainingRetry();
+                try {
+                    viewManager.showPanel('training_offers');
+                } catch (e) {
+                    console.error('[Creuse] Failed to open training offers panel', e);
+                    this.scheduleAutoTrainingRetry();
+                }
+            }, 220, 120);
 
             setTimeout(() => {
                 if (!this.isTrainingRunning) {
                     return;
                 }
+
+                const bestTrain = this.getBestTrain();
+                if (!bestTrain) {
+                    console.log('[Creuse] No best train');
+                    this.stopTrainingExecution();
+                    return;
+                }
+
+                this.clearAutoTrainingRetry();
 
                 const currentTrainingPanel = document.Creuse?.training_panel;
                 const trainOffers = [
@@ -314,45 +407,52 @@
                 }
 
                 if (this.autoStartTrain) {
-                    try {
-                        currentTrainingPanel.onStartTrainingClicked(targetOffer._training);
-                    } catch (e) {
-                        console.error('[Creuse] Failed to start selected training', e);
-                        this.scheduleAutoTrainingRetry();
-                        return;
-                    }
-
-                    console.log('[Creuse] Found a training, waiting for session to initialize');
-
-                    const waitForTrainingSession = (attempt = 0) => {
+                    this.runWithUiDelay(() => {
                         if (!this.isTrainingRunning) {
                             return;
                         }
 
-                        const currentTrainPanel = document.Creuse?.train;
-                        const neededValue = currentTrainPanel?._trainingProgress?._neededValue;
-
-                        if (neededValue !== undefined && neededValue !== null && neededValue !== -1) {
-                            console.log('[Creuse] Training session initialized, continuing automation');
-                            this.executeAutoTraining();
-                            return;
-                        }
-
-                        if (attempt >= 20) {
-                            console.error('[Creuse] Training session did not initialize in time');
+                        try {
+                            currentTrainingPanel.onStartTrainingClicked(targetOffer._training);
+                        } catch (e) {
+                            console.error('[Creuse] Failed to start selected training', e);
                             this.scheduleAutoTrainingRetry();
                             return;
                         }
 
-                        setTimeout(() => waitForTrainingSession(attempt + 1), 250);
-                    };
+                        console.log('[Creuse] Found a training, waiting for session to initialize');
 
-                    waitForTrainingSession();
+                        const waitForTrainingSession = (attempt = 0) => {
+                            if (!this.isTrainingRunning) {
+                                return;
+                            }
+
+                            const currentTrainPanel = document.Creuse?.train;
+                            const neededValue = currentTrainPanel?._trainingProgress?._neededValue;
+
+                            if (neededValue !== undefined && neededValue !== null && neededValue !== -1) {
+                                console.log('[Creuse] Training session initialized, continuing automation');
+                                this.executeAutoTraining();
+                                return;
+                            }
+
+                            if (attempt >= 20) {
+                                console.error('[Creuse] Training session did not initialize in time');
+                                this.scheduleAutoTrainingRetry();
+                                return;
+                            }
+
+                            setTimeout(() => waitForTrainingSession(attempt + 1), 300);
+                        };
+
+                        waitForTrainingSession();
+                    }, 260, 140);
+
                     return;
                 }
 
                 this.stopTrainingExecution();
-            }, 400);
+            }, 520);
 
             return;
         }
@@ -392,12 +492,18 @@
                         return;
                     }
 
-                    try {
-                        console.log('[Creuse] Training ended, closing the dialog.');
-                        currentDialog.handleClickClose();
-                    } catch (e) {
-                        console.error('[Creuse] Error while closing training complete dialog', e);
-                    }
+                    this.runWithUiDelay(() => {
+                        if (!this.isTrainingRunning) {
+                            return;
+                        }
+
+                        try {
+                            console.log('[Creuse] Training ended, closing the dialog.');
+                            currentDialog.handleClickClose();
+                        } catch (e) {
+                            console.error('[Creuse] Error while closing training complete dialog', e);
+                        }
+                    }, 200, 100);
                 }, 200);
             }
 
@@ -469,7 +575,8 @@
                 console.error('[Creuse] No valid reachable training quests found', {
                     trainingEnergyLeft,
                     projectedEnergy,
-                    remainingSeconds
+                    remainingSeconds,
+                    currentTrainingTimer: this.currentTrainingTimer
                 });
                 this.scheduleAutoTrainingRetry();
                 return;
@@ -485,7 +592,8 @@
                 console.log('[Creuse] No visible training quest selected, waiting', {
                     trainingEnergyLeft,
                     projectedEnergy,
-                    remainingSeconds
+                    remainingSeconds,
+                    currentTrainingTimer: this.currentTrainingTimer
                 });
                 this.scheduleAutoTrainingRetry();
                 return;
@@ -496,6 +604,7 @@
                     trainingEnergyLeft,
                     projectedEnergy,
                     remainingSeconds,
+                    currentTrainingTimer: this.currentTrainingTimer,
                     bestQuest: {
                         energyCost: bestQuest.energyCost,
                         trainingProgress: bestQuest.trainingProgress,
@@ -506,28 +615,15 @@
                 return;
             }
 
-            try {
-                trainPanel.openTrainingQuest(bestQuest.tag);
-            } catch (e) {
-                console.error('[Creuse] Failed to open training quest', e);
-                this.scheduleAutoTrainingRetry();
-                return;
-            }
-
-            setTimeout(() => {
+            this.runWithUiDelay(() => {
                 if (!this.isTrainingRunning) {
                     return;
                 }
 
                 try {
-                    document.Creuse?.training_dialog?.startTrainingQuest();
+                    trainPanel.openTrainingQuest(bestQuest.tag);
                 } catch (e) {
-                    console.error('[Creuse] Failed to start training quest', e);
-                    this.scheduleAutoTrainingRetry();
-                    return;
-                }
-
-                if (!document.Creuse?.training_quest_panel) {
+                    console.error('[Creuse] Failed to open training quest', e);
                     this.scheduleAutoTrainingRetry();
                     return;
                 }
@@ -537,25 +633,54 @@
                         return;
                     }
 
-                    setTimeout(() => {
+                    this.runWithUiDelay(() => {
                         if (!this.isTrainingRunning) {
                             return;
                         }
 
-                        const doneDialog = document.Creuse?.training_done_dialog;
-                        if (doneDialog && typeof doneDialog.handleClickClose === 'function') {
-                            try {
-                                console.log('[Creuse] Closing end dialog of training quest.');
-                                doneDialog.handleClickClose();
-                            } catch (e) {
-                                console.error('[Creuse] Error while closing training done dialog', e);
-                            }
+                        try {
+                            document.Creuse?.training_dialog?.startTrainingQuest();
+                        } catch (e) {
+                            console.error('[Creuse] Failed to start training quest', e);
+                            this.scheduleAutoTrainingRetry();
+                            return;
                         }
 
-                        this.executeBestTrain();
-                    }, 4200);
-                }, 2100);
-            }, 250);
+                        if (!document.Creuse?.training_quest_panel) {
+                            this.scheduleAutoTrainingRetry();
+                            return;
+                        }
+
+                        setTimeout(() => {
+                            if (!this.isTrainingRunning) {
+                                return;
+                            }
+
+                            const doneDialog = document.Creuse?.training_done_dialog;
+                            if (doneDialog && typeof doneDialog.handleClickClose === 'function') {
+                                this.runWithUiDelay(() => {
+                                    if (!this.isTrainingRunning) {
+                                        return;
+                                    }
+
+                                    try {
+                                        console.log('[Creuse] Closing end dialog of training quest.');
+                                        doneDialog.handleClickClose();
+                                    } catch (e) {
+                                        console.error('[Creuse] Error while closing training done dialog', e);
+                                    }
+
+                                    this.executeBestTrain();
+                                }, 220, 120);
+
+                                return;
+                            }
+
+                            this.executeBestTrain();
+                        }, 4200);
+                    }, 220, 100);
+                }, 350);
+            }, 220, 120);
 
             return;
         }
@@ -572,14 +697,20 @@
                     return;
                 }
 
-                try {
-                    console.log('[Creuse] Closing lingering end dialog of training quest.');
-                    currentDialog.handleClickClose();
-                } catch (e) {
-                    console.error('[Creuse] Error while closing lingering training dialog', e);
-                }
+                this.runWithUiDelay(() => {
+                    if (!this.isTrainingRunning) {
+                        return;
+                    }
 
-                this.executeAutoTraining();
+                    try {
+                        console.log('[Creuse] Closing lingering end dialog of training quest.');
+                        currentDialog.handleClickClose();
+                    } catch (e) {
+                        console.error('[Creuse] Error while closing lingering training dialog', e);
+                    }
+
+                    this.executeAutoTraining();
+                }, 220, 120);
             }, 4200);
         }
     };

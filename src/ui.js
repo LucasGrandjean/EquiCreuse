@@ -128,6 +128,10 @@
 
         this._trainingButtonTimerInterval = setInterval(() => {
             this.refreshActionButtons();
+
+            if (typeof this.handleTrainingCooldownFinished === 'function') {
+                this.handleTrainingCooldownFinished();
+            }
         }, 1000);
     };
 
@@ -237,19 +241,19 @@
 
                             <div class="card text-bg-dark mb-2">
                                 <div class="card-body">
-                                    <h5 class="card-title">Senses</h5>
+                                    <h5 class="card-title">Sens héroïque & Énergie</h5>
 
                                     <div class="mb-3 form-check">
                                         <input type="checkbox" class="form-check-input" id="quest-sense-booster">
                                         <label class="form-check-label" for="quest-sense-booster">
-                                            Quest Sense Booster
+                                            Sens héroïque - Quêtes
                                         </label>
                                     </div>
 
                                     <div class="mb-3 form-check">
                                         <input type="checkbox" class="form-check-input" id="train-sense-booster">
                                         <label class="form-check-label" for="train-sense-booster">
-                                            Train Sense Booster
+                                            Sens héroïque - Entraînement
                                         </label>
                                     </div>
 
@@ -259,7 +263,7 @@
                                         style="padding: var(--bs-btn-padding-y) var(--bs-btn-padding-x) !important;"
                                         type="button"
                                     >
-                                        Buy Energy
+                                        Acheter de l'énergie
                                     </button>
                                 </div>
                             </div>
@@ -274,7 +278,7 @@
                                             id="auto-redeem-voucher-later"
                                         >
                                         <label class="form-check-label" for="auto-redeem-voucher-later">
-                                            Enlever popup
+                                            Enlever pop-up de bons
                                         </label>
                                     </div>
                                 </div>
@@ -368,12 +372,12 @@
 
                             <div class="card text-bg-dark mb-2">
                                 <div class="card-body">
-                                    <h5 class="card-title">Level Up</h5>
+                                    <h5 class="card-title">Pop-up de niveau</h5>
 
                                     <div class="mb-3 form-check">
                                         <input type="checkbox" class="form-check-input" id="auto-dismiss-level-up">
                                         <label class="form-check-label" for="auto-dismiss-level-up">
-                                            Enlever popup lvl up
+                                            Enlever pop-up de niveau (héro)
                                         </label>
                                     </div>
 
@@ -384,7 +388,7 @@
                                             id="auto-dismiss-pet-level-up"
                                         >
                                         <label class="form-check-label" for="auto-dismiss-pet-level-up">
-                                            Enlever popup lvl up
+                                            Enlever pop-up de niveau (Pet)
                                         </label>
                                     </div>
                                 </div>
